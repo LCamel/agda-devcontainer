@@ -20,26 +20,26 @@ if [ -z "$REMOTE_TAGS" ]; then
 fi
 
 # Parse version components from the Target Tag
-# Format: GHC__STACKAGE__HLS__TIMESTAMP
-# Example: 9.10.2__lts-24.11__2.11.0.0__20251227-0218
+# Format: VERSION__TIMESTAMP
+# Example: 2.8.0__20260201-1234, 2.7.0.1__20260201-1234
 
-GHC_FULL=$(echo "$TARGET_TAG" | awk -F__ '{print $1}')      # 9.10.2
-
-STACKAGE_FULL=$(echo "$TARGET_TAG" | awk -F__ '{print $2}') # lts-24.11
+# Extract Agda version (first field before "__")
+AGDA_VERSION=$(echo "$TARGET_TAG" | awk -F__ '{print $1}')
 
 # debug info to stderr
 echo "Debug: Target='$TARGET_TAG'" >&2
-echo "Debug: GHC_FULL='$GHC_FULL', STACKAGE_FULL='$STACKAGE_FULL'" >&2
+echo "Debug: AGDA_VERSION='$AGDA_VERSION'" >&2
 
 # Helper function to filter and sort tags using the project's logic
-# Format: GHC__STACKAGE__HLS__TIMESTAMP
-# Sort keys: 1.GHC(V) 2.Stackage(V) 3.HLS(V) 4.Timestamp(txt)
+# Format: VERSION__TIMESTAMP
+# Sort keys: 1.Version(V) 2.Timestamp(txt)
 filter_and_sort_tags() {
-    grep -E '.+__.+__.+__.+' | \
-    # Safe to use space as delimiter for sort because Docker tags cannot contain whitespace.
-    sed 's/__/ /g' | \
-    sort -k1V -k2V -k3V -k4 | \
-    sed 's/ /__/g'
+    grep -E '^[0-9]+(\.[0-9]+)+__[0-9]{8}-[0-9]{4}$' | \
+    # Convert X.Y.Z__TIMESTAMP to "X.Y.Z TIMESTAMP" for sorting
+    sed 's/__/ /' | \
+    sort -k1V -k2 | \
+    # Convert back to original format
+    sed 's/ /__/'
 }
 
 # Function to check if TARGET_TAG is the latest in a given scope
@@ -47,7 +47,7 @@ filter_and_sort_tags() {
 is_latest() {
     local pattern="$1"
     local relevant_tags
-    
+
     if [ "$pattern" == ".*" ]; then
         relevant_tags="$REMOTE_TAGS"
     else
@@ -57,7 +57,7 @@ is_latest() {
     # Defensive: append TARGET_TAG to handle cases where it's not yet visible in REMOTE_TAGS.
     # If it's already there, duplicate lines don't affect 'tail -n 1' results.
     local sorted_latest=$(echo -e "${relevant_tags}\n${TARGET_TAG}" | filter_and_sort_tags | tail -n 1)
-    
+
     if [ "$TARGET_TAG" = "$sorted_latest" ]; then
         return 0
     else
@@ -70,20 +70,12 @@ if is_latest ".*"; then
     echo "latest"
 fi
 
-# 2. Check GHC floating tag (ghc-X.Y.Z)
-if [ -n "$GHC_FULL" ]; then
-    # Regex: Start of line, then GHC_FULL, then __. e.g. ^9\.10\.2__
-    PATTERN="^${GHC_FULL//./\.}__"
+# 2. Check Agda version floating tag (X.Y.Z or X.Y.Z.W)
+if [ -n "$AGDA_VERSION" ]; then
+    # Regex: Match tags with the same Agda version
+    # e.g., ^2\.8\.0__
+    PATTERN="^${AGDA_VERSION//./\.}__"
     if is_latest "$PATTERN"; then
-        echo "ghc-${GHC_FULL}"
-    fi
-fi
-
-# 3. Check Stackage floating tag (stackage-lts-X.Y)
-if [ -n "$STACKAGE_FULL" ]; then
-    # Regex: Contains __STACKAGE_FULL__. e.g. __lts-24\.11__
-    PATTERN="__${STACKAGE_FULL//./\.}__"
-    if is_latest "$PATTERN"; then
-        echo "stackage-${STACKAGE_FULL}"
+        echo "${AGDA_VERSION}"
     fi
 fi
