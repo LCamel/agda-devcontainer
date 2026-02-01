@@ -15,8 +15,8 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: lcamel/haskell-devcontainer
-  IMAGE_NAME_TEMP: lcamel/haskell-devcontainer-temp
+  IMAGE_NAME: lcamel/agda-devcontainer
+  IMAGE_NAME_TEMP: lcamel/agda-devcontainer-temp
 
 jobs:
   # Validate ref name before starting any builds
@@ -100,7 +100,7 @@ jobs:
           docker buildx imagetools create \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_TEMP }}:${IMAGE_TAG} \
             --annotation "index:org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
-            --annotation "index:org.opencontainers.image.description=Ready-to-use Haskell environment with GHC, Stackage, and HLS" \
+            --annotation "index:org.opencontainers.image.description=Ready-to-use Agda environment" \
             --annotation "index:org.opencontainers.image.licenses=MIT" \
             --annotation "index:org.opencontainers.image.revision=${{ github.sha }}" \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_TEMP }}@${AMD64_DIGEST} \
@@ -135,13 +135,10 @@ jobs:
 
           docker pull "${FULL_IMAGE_NAME}"
 
-          # GITHUB_TOKEN: "stack new" uses GitHub API to fetch templates, may hit rate limits without auth
-          # See: https://github.com/commercialhaskell/stack/issues/6034
           docker run --rm \
             --platform ${{ matrix.platform }} \
-            -e GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
             -v ${{ github.workspace }}/.github/scripts/smoke-test.sh:/tmp/smoke-test.sh \
-            -v ${{ github.workspace }}/docker/haskell-versions.env:/tmp/haskell-versions.env \
+            -v ${{ github.workspace }}/docker/agda-versions.env:/tmp/agda-versions.env \
             -w /tmp \
             "${FULL_IMAGE_NAME}" \
             bash -li /tmp/smoke-test.sh
@@ -169,7 +166,7 @@ jobs:
           docker buildx imagetools create \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG} \
             --annotation "index:org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
-            --annotation "index:org.opencontainers.image.description=Ready-to-use Haskell environment with GHC, Stackage, and HLS" \
+            --annotation "index:org.opencontainers.image.description=Ready-to-use Agda environment" \
             --annotation "index:org.opencontainers.image.licenses=MIT" \
             --annotation "index:org.opencontainers.image.revision=${{ github.sha }}" \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_TEMP }}:${IMAGE_TAG}
@@ -177,7 +174,7 @@ jobs:
           echo "Successfully promoted to ${IMAGE_TAG}"
           echo "Note: Temp package versions will be cleaned up by scheduled cleanup workflow"
 
-  # Update floating tags (latest, ghc-X.Y.Z, stackage-lts-X.Y)
+  # Update floating tags (latest, X.Y.Z, X.Y.Z.W)
   # This runs sequentially to avoid race conditions.
   tag-floating:
     needs: promote
@@ -228,7 +225,7 @@ jobs:
             echo "Applying updates..."
             docker buildx imagetools create $TAG_ARGS \
               --annotation "index:org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
-              --annotation "index:org.opencontainers.image.description=Ready-to-use Haskell environment with GHC, Stackage, and HLS" \
+              --annotation "index:org.opencontainers.image.description=Ready-to-use Agda environment" \
               --annotation "index:org.opencontainers.image.licenses=MIT" \
               --annotation "index:org.opencontainers.image.revision=${{ github.sha }}" \
               ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$TARGET_TAG

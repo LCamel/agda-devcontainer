@@ -14,7 +14,7 @@ jobs:
       - name: Delete old temp package versions
         uses: actions/delete-package-versions@v5
         with:
-          package-name: 'haskell-devcontainer-temp'
+          package-name: 'agda-devcontainer-temp'
           package-type: 'container'
           min-versions-to-keep: 0
           delete-only-untagged-versions: 'false'  # Delete all versions (tagged or not)
