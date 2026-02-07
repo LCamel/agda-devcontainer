@@ -33,3 +33,23 @@ done
 sed -i '2,$s/^/-- /' "$AGDA_DIR/libraries-$AGDA_VERSION"
 
 rm -f /tmp/stdlib-install.sh
+
+# Setup Emacs agda-mode
+agda --emacs-mode setup
+
+# Pre-compile common stdlib modules
+mkdir -p /tmp/precompile && cd /tmp/precompile
+cat > Precompile.agda << 'EOF'
+module Precompile where
+open import Data.Nat
+open import Data.Bool
+open import Data.List
+open import Data.String
+open import Data.Maybe
+open import Data.Product
+open import Data.Sum
+open import Relation.Binary.PropositionalEquality
+open import Function
+EOF
+agda Precompile.agda
+cd / && rm -rf /tmp/precompile

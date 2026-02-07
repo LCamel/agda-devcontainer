@@ -2,20 +2,20 @@
 set -e
 
 # Load environment variables
-if [ -f "haskell-versions.env" ]; then
-    source haskell-versions.env
+if [ -f "agda-versions.env" ]; then
+    source agda-versions.env
 else
-    echo "Error: haskell-versions.env not found in current directory."
+    echo "Error: agda-versions.env not found in current directory."
     exit 1
 fi
 
 echo "Running smoke test with:"
-echo "GHC_VERSION=${GHC_VERSION}"
-echo "STACKAGE_VERSION=${STACKAGE_VERSION}"
+echo "AGDA_VERSION=${AGDA_VERSION}"
+echo "STDLIB_VERSIONS=${STDLIB_VERSIONS}"
 echo ""
 
 # Global test directory
-TEST_DIR="/tmp/test1"
+TEST_DIR="/tmp/agda-test"
 
 # Cleanup function
 cleanup_test_directory() {
@@ -23,244 +23,124 @@ cleanup_test_directory() {
     rm -rf "$TEST_DIR"
 }
 
-# Test: Check GHC version
-test_ghc_version() {
-    echo "=== Checking GHC version ==="
-    GHC_VERSION_OUTPUT=$(ghc --version)
-    if ! echo "$GHC_VERSION_OUTPUT" | grep -qE "\<${GHC_VERSION}\>"; then
-        echo "Error: GHC version mismatch. Expected $GHC_VERSION, got: $GHC_VERSION_OUTPUT"
+# Test: Check Agda version
+test_agda_version() {
+    echo "=== Checking Agda version ==="
+    AGDA_VERSION_OUTPUT=$(agda --version)
+    if ! echo "$AGDA_VERSION_OUTPUT" | grep -qE "\<${AGDA_VERSION}\>"; then
+        echo "Error: Agda version mismatch. Expected $AGDA_VERSION, got: $AGDA_VERSION_OUTPUT"
         return 1
     fi
-    echo "✓ GHC version verified: $GHC_VERSION"
+    echo "OK: Agda version verified: $AGDA_VERSION"
     echo ""
 }
 
-# Test: Check stackage-version file
-test_stackage_version_file() {
-    echo "=== Checking ~/.haskell-devcontainer/stackage-version file ==="
-    STACKAGE_VERSION_FILE="$HOME/.haskell-devcontainer/stackage-version"
-    if [ ! -f "$STACKAGE_VERSION_FILE" ]; then
-        echo "Error: $STACKAGE_VERSION_FILE not found."
-        return 1
-    fi
-    STACKAGE_VERSION_CONTENT=$(cat "$STACKAGE_VERSION_FILE")
-    if [ "$STACKAGE_VERSION_CONTENT" != "$STACKAGE_VERSION" ]; then
-        echo "Error: stackage-version file content mismatch. Expected '$STACKAGE_VERSION', got: '$STACKAGE_VERSION_CONTENT'"
-        return 1
-    fi
-    echo "✓ stackage-version file verified: $STACKAGE_VERSION_CONTENT"
+# Test: Check Emacs version
+test_emacs_version() {
+    echo "=== Checking Emacs ==="
+    EMACS_VERSION_OUTPUT=$(emacs --version | head -1)
+    echo "Emacs: $EMACS_VERSION_OUTPUT"
+    echo "OK: Emacs installed"
     echo ""
 }
 
-# Test: Create and build Stack project
-test_stack_project() {
-    echo "=== Creating and building Stack project ==="
-    echo "Setting up test directory: $TEST_DIR"
+# Test: Check xpra
+test_xpra() {
+    echo "=== Checking xpra ==="
+    XPRA_VERSION_OUTPUT=$(xpra --version | head -1)
+    echo "xpra: $XPRA_VERSION_OUTPUT"
+    echo "OK: xpra installed"
+    echo ""
+}
+
+# Test: Check fonts
+test_fonts() {
+    echo "=== Checking fonts ==="
+    if fc-list | grep -qi noto; then
+        echo "OK: Noto fonts installed"
+        fc-list | grep -i noto | head -3
+    else
+        echo "Error: Noto fonts not found"
+        return 1
+    fi
+    echo ""
+}
+
+# Test: Check Agda stdlib
+test_agda_stdlib() {
+    echo "=== Checking Agda stdlib ==="
+    AGDA_DIR=$(agda --print-agda-app-dir)
+    LIBRARIES_FILE="$AGDA_DIR/libraries-$AGDA_VERSION"
+
+    if [ ! -f "$LIBRARIES_FILE" ]; then
+        echo "Error: Libraries file not found: $LIBRARIES_FILE"
+        return 1
+    fi
+
+    echo "Libraries file: $LIBRARIES_FILE"
+    cat "$LIBRARIES_FILE"
+    echo "OK: Agda stdlib configured"
+    echo ""
+}
+
+# Test: Compile Agda file with stdlib
+test_agda_compilation() {
+    echo "=== Testing Agda compilation with stdlib ==="
     mkdir -p "$TEST_DIR"
     cd "$TEST_DIR"
 
-    echo "Creating new stack project..."
-    stack new foo --bare --resolver "$(cat ~/.haskell-devcontainer/stackage-version)"
+    cat > Test.agda << 'EOF'
+module Test where
 
-    echo "Installing project..."
-    stack install
+open import Data.Nat
+open import Data.Bool
 
-    echo "Running foo-exe..."
-    OUTPUT=$(foo-exe)
-    if [[ "$OUTPUT" == *"someFunc"* ]]; then
-        echo "✓ foo-exe output verified: $OUTPUT"
-        echo ""
-    else
-        echo "Error: foo-exe returned unexpected output: $OUTPUT"
-        return 1
-    fi
-}
-
-# Test: Check HLS probe-tools
-test_hls_probe_tools() {
-    echo "=== Checking HLS probe-tools ==="
-    cd "$TEST_DIR"
-
-    HLS_PROBE=$(haskell-language-server-wrapper --probe-tools)
-    echo "$HLS_PROBE"
-
-    MATCH_COUNT=$(echo "$HLS_PROBE" | grep -cE "ghc:[[:space:]]+\<${GHC_VERSION}\>")
-    echo "Found $MATCH_COUNT occurrences of 'ghc: $GHC_VERSION'"
-
-    if [ "$MATCH_COUNT" -ge 2 ]; then
-        echo "✓ HLS probe confirmed GHC version $GHC_VERSION in both PATH and Project context ($MATCH_COUNT matches)."
-        echo ""
-    else
-        echo "Error: HLS probe expected at least 2 occurrences of 'ghc: $GHC_VERSION' (found $MATCH_COUNT)."
-        echo "This usually means HLS detected the system GHC but failed to detect the project GHC."
-        return 1
-    fi
-}
-
-# Test: HLS LSP initialization
-# This tests that HLS can:
-# 1. Start as an LSP server
-# 2. Accept and respond to initialize request
-# 3. Handle initialized notification
-# 4. Shutdown gracefully
-test_hls_lsp_initialization() {
-    echo "=== Testing HLS LSP initialization ==="
-
-    # Use a subdirectory for LSP test to avoid interfering with stack project
-    local LSP_TEST_DIR="$TEST_DIR/hls-lsp-test"
-    rm -rf "$LSP_TEST_DIR"
-    mkdir -p "$LSP_TEST_DIR"
-    cd "$LSP_TEST_DIR"
-
-    # Create a minimal Haskell project for LSP to work with
-    cat > Main.hs <<'EOF'
-module Main where
-
-main :: IO ()
-main = putStrLn "Hello, World!"
+test : ℕ
+test = 42
 EOF
 
-    cat > hie.yaml <<'EOF'
-cradle:
-  direct:
-    arguments: []
-EOF
+    echo "Compiling Test.agda..."
+    agda Test.agda
 
-    # Function to create LSP message with Content-Length header
-    create_lsp_message() {
-        local payload="$1"
-        local length=${#payload}
-        printf "Content-Length: %d\r\n\r\n%s" "$length" "$payload"
-    }
-
-    # Create input file with all LSP messages
-    local INPUT_FILE="$LSP_TEST_DIR/lsp-input.txt"
-    local OUTPUT_FILE="$LSP_TEST_DIR/lsp-output.txt"
-    local STDERR_FILE="$LSP_TEST_DIR/hls-stderr.log"
-
-    # Initialize request
-    local INITIALIZE_REQUEST='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"clientInfo":{"name":"smoke-test","version":"1.0.0"},"rootUri":"file://'"$LSP_TEST_DIR"'","capabilities":{"textDocument":{"hover":{"contentFormat":["plaintext"]}}},"initializationOptions":{}}}'
-
-    # Initialized notification
-    local INITIALIZED_NOTIFICATION='{"jsonrpc":"2.0","method":"initialized","params":{}}'
-
-    # Shutdown request
-    local SHUTDOWN_REQUEST='{"jsonrpc":"2.0","id":2,"method":"shutdown","params":null}'
-
-    # Exit notification
-    local EXIT_NOTIFICATION='{"jsonrpc":"2.0","method":"exit"}'
-
+    echo "OK: Agda compilation successful"
     echo ""
-    echo "=== LSP Requests ==="
-    echo ""
-    echo "1. Initialize Request:"
-    echo "$INITIALIZE_REQUEST" | jq '.'
-    echo ""
-    echo "2. Initialized Notification:"
-    echo "$INITIALIZED_NOTIFICATION" | jq '.'
-    echo ""
-    echo "3. Shutdown Request:"
-    echo "$SHUTDOWN_REQUEST" | jq '.'
-    echo ""
-    echo "4. Exit Notification:"
-    echo "$EXIT_NOTIFICATION" | jq '.'
-    echo ""
+}
 
-    # Write all messages to input file
-    {
-        create_lsp_message "$INITIALIZE_REQUEST"
-        create_lsp_message "$INITIALIZED_NOTIFICATION"
-        create_lsp_message "$SHUTDOWN_REQUEST"
-        create_lsp_message "$EXIT_NOTIFICATION"
-    } > "$INPUT_FILE"
+# Test: Emacs agda-mode (already setup during install)
+test_emacs_agda_mode() {
+    echo "=== Testing Emacs agda-mode ==="
 
-    # Start HLS and capture stderr to a file first
-    echo "Starting HLS..."
-    echo "--- HLS stderr output: ---"
-    timeout 30 haskell-language-server-wrapper --lsp < "$INPUT_FILE" > "$OUTPUT_FILE" 2> "$STDERR_FILE" || HLS_EXIT=$?
+    # Test if agda2-mode can be loaded (setup was done during install)
+    AGDA_MODE_RESULT=$(emacs --batch \
+        --eval "(load-file (let ((coding-system-for-read 'utf-8)) (shell-command-to-string \"agda --emacs-mode locate\")))" \
+        --eval "(require 'agda2-mode nil t)" \
+        --eval "(if (featurep 'agda2-mode) (message \"agda2-mode: OK\") (message \"agda2-mode: FAILED\"))" \
+        2>&1)
 
-    # Display stderr after HLS completes
-    cat "$STDERR_FILE" >&2
-    echo "--- End of HLS stderr ---"
-    echo ""
-
-    # Check exit code (0 = success, 124 = timeout, other = error)
-    if [ "${HLS_EXIT:-0}" -eq 124 ]; then
-        echo "Error: HLS timed out"
-        return 1
-    elif [ "${HLS_EXIT:-0}" -ne 0 ] && [ "${HLS_EXIT:-0}" -ne 1 ]; then
-        echo "Error: HLS exited with code ${HLS_EXIT}"
-        return 1
-    fi
-
-    echo "✓ HLS completed"
-
-    # Parse output for initialize response
-    echo "Parsing LSP responses..."
-
-    # Extract all JSON messages from output
-    local EXTRACTED_JSON="$LSP_TEST_DIR/messages.json"
-    grep -o '{.*}' "$OUTPUT_FILE" > "$EXTRACTED_JSON" || {
-        echo "Error: No JSON messages found in output"
-        echo ""
-        echo "HLS stderr output:"
-        cat "$STDERR_FILE"
-        echo ""
-        echo "HLS stdout output (first 500 chars):"
-        head -c 500 "$OUTPUT_FILE"
-        echo ""
-        echo "Full stdout file size: $(wc -c < "$OUTPUT_FILE") bytes"
-        return 1
-    }
-
-    # Check for initialize response (id=1 with result.capabilities)
-    local INIT_RESPONSE=$(grep -m 1 '"id":1' "$EXTRACTED_JSON" || echo "")
-
-    if [ -z "$INIT_RESPONSE" ]; then
-        echo "Error: No initialize response found (id=1)"
-        echo "Extracted messages:"
-        cat "$EXTRACTED_JSON"
-        return 1
-    fi
-
-    # Validate capabilities using jq
-    if ! echo "$INIT_RESPONSE" | jq -e '.result.capabilities' > /dev/null 2>&1; then
-        echo "Error: Initialize response missing capabilities"
-        echo "Response: $INIT_RESPONSE"
-        return 1
-    fi
-
-    echo "✓ Initialize response validated - capabilities present"
-
-    echo ""
-    echo "=== LSP Responses ==="
-    echo ""
-    echo "1. Initialize Response:"
-    echo "$INIT_RESPONSE" | jq '.'
-    echo ""
-
-    # Print some key capabilities
-    local SAMPLE_CAPS=$(echo "$INIT_RESPONSE" | jq -r '.result.capabilities | keys | .[:10] | join(", ")')
-    echo "Key capabilities (first 10): $SAMPLE_CAPS"
-    echo ""
-
-    # Check for shutdown response (id=2)
-    local SHUTDOWN_RESPONSE=$(grep -m 1 '"id":2' "$EXTRACTED_JSON" || echo "")
-    if [ -n "$SHUTDOWN_RESPONSE" ]; then
-        echo "✓ Shutdown response received"
-        echo ""
-        echo "2. Shutdown Response:"
-        echo "$SHUTDOWN_RESPONSE" | jq '.'
-        echo ""
+    if echo "$AGDA_MODE_RESULT" | grep -q "agda2-mode: OK"; then
+        echo "OK: agda2-mode loaded successfully"
     else
-        echo "Warning: No shutdown response found (id=2)"
+        echo "Error: Failed to load agda2-mode"
+        echo "$AGDA_MODE_RESULT"
+        return 1
     fi
+    echo ""
+}
 
-    # Cleanup LSP test directory
-    cd "$TEST_DIR"
-    rm -rf "$LSP_TEST_DIR"
+# Test: Check pre-compiled stdlib modules
+test_precompiled_stdlib() {
+    echo "=== Checking pre-compiled stdlib modules ==="
+    AGDA_DIR=$(agda --print-agda-app-dir)
+    STDLIB_DIR=$(dirname $(head -1 "$AGDA_DIR/libraries-$AGDA_VERSION" | grep -v '^--'))
 
-    echo "✓ HLS LSP initialization test passed!"
+    AGDAI_COUNT=$(find "$STDLIB_DIR" -name "*.agdai" 2>/dev/null | wc -l)
+
+    if [ "$AGDAI_COUNT" -gt 0 ]; then
+        echo "OK: Found $AGDAI_COUNT pre-compiled .agdai files"
+    else
+        echo "Error: No pre-compiled .agdai files found"
+        return 1
+    fi
     echo ""
 }
 
@@ -270,17 +150,20 @@ main() {
     cleanup_test_directory
 
     # Run all tests
-    test_ghc_version
-    test_stackage_version_file
-    test_stack_project
-    test_hls_probe_tools
-    test_hls_lsp_initialization
+    test_agda_version
+    test_emacs_version
+    test_xpra
+    test_fonts
+    test_agda_stdlib
+    test_precompiled_stdlib
+    test_agda_compilation
+    test_emacs_agda_mode
 
     # Clean up test directory after all tests
     cleanup_test_directory
 
     echo "========================================"
-    echo "✓ All smoke tests passed successfully!"
+    echo "OK: All smoke tests passed successfully!"
     echo "========================================"
 }
 
