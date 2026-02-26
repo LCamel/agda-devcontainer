@@ -21,4 +21,6 @@ chmod 700 /run/user/1000
 # install newer version of HTML5 client for Xpra
 cd /usr/share/xpra
 git clone https://github.com/Xpra-org/xpra-html5
+# Pin to this commit for correct Unicode clipboard handling
+cd xpra-html5 && git checkout 46313d5751702ee997a7afa9b0dbe05d2ad675b0 && cd ..
 echo -e "\nswap_keys=false\nclipboard_preferred_format=UTF8_STRING" >> /usr/share/xpra/xpra-html5/html5/default-settings.txt
